@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# Generated conversion artifacts
+artifacts/
+*.onnx
+*.pdmodel
+*.pdiparams
+*.tar
