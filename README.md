@@ -63,9 +63,6 @@ pp2onnx --model mobile_det mobile_rec --skip-validate
 
 # 已经有 ONNX 文件时，只重新跑验证
 pp2onnx --model mobile_det mobile_rec --skip-convert --image test_paper.PNG
-
-# 导出 PaddleOCR 端到端结果，以及原生 ONNX Runtime 的输入/输出张量
-pp2onnx --model mobile_det mobile_rec --image test_paper.PNG --export-results
 ```
 
 输出示例：
@@ -110,28 +107,6 @@ pp2onnx --model mobile_det mobile_rec --image test_paper.PNG --export-results
   ]
 }
 ```
-
-
-## 导出 PaddleOCR 与原生 ONNX 结果
-
-如果需要留存两种推理方式的结果用于人工比对或 CI 归档，可加 `--export-results`：
-
-```bash
-pp2onnx --model mobile_det mobile_rec --image test_paper.PNG --export-results
-```
-
-默认会写到 `artifacts/results/`，也可以用 `--results-dir` 指定目录：
-
-```bash
-pp2onnx --model mobile_det mobile_rec --image test_paper.PNG --export-results --results-dir runs/ppocrv5_mobile
-```
-
-导出内容包括：
-
-- `paddleocr/manifest.json` 和 `paddleocr/<image>.json`：使用 PaddleOCR pipeline（Paddle 推理模型）得到的端到端 OCR 结构化结果，包含检测框、识别文本与置信度等字段。
-- `native_onnx/<model>/manifest.json`、`input.npy`、`output_*.npy`：使用 ONNX Runtime 直接执行 ONNX 模型得到的原生输入/输出张量。这里导出的是模型张量输出，不做 PaddleOCR 后处理，适合排查转换数值误差。
-
-`--export-results` 会复用数值一致性验证中的输入张量，因此建议不要同时使用 `--skip-validate`。PaddleOCR 端到端导出需要同时提供一个检测模型和一个识别模型；如果只转换单个 det 或 rec 模型，工具会跳过 PaddleOCR 端到端导出，但仍可导出该模型的原生 ONNX 张量结果。
 
 如果 `passed` 为 `false`，建议：
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -19,33 +18,6 @@ from .models import MODEL_SPECS, ModelSpec
 DEFAULT_OUTPUT_ROOT = Path("artifacts")
 DEFAULT_MODELS = ("mobile_det", "mobile_rec")
 TASK_CHOICES = ("auto", "det", "rec")
-
-
-def safe_name(name: str) -> str:
-    """Return a filesystem-safe stem for generated result artifacts."""
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "model"
-
-
-def make_json_safe(value):
-    """Convert common runtime result objects into JSON-serializable values."""
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): make_json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [make_json_safe(item) for item in value]
-    if hasattr(value, "tolist"):
-        return make_json_safe(value.tolist())
-    if hasattr(value, "item"):
-        return value.item()
-    return value
-
-
-def write_json(data: object, path: Path) -> Path:
-    """Write JSON data to *path* and return the path."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(make_json_safe(data), indent=2, ensure_ascii=False), encoding="utf-8")
-    return path
 
 
 class ConversionError(RuntimeError):
@@ -196,7 +168,7 @@ def convert_with_paddlex(paddle_model_dir: Path, onnx_model_dir: Path, opset_ver
 
 def preprocess_detection_image(image_path: Path, limit_side_len: int = 960):
     """Preprocess an image for PaddleOCR DB-style text detection."""
-    _require_module("cv2", "python -m pip install opencv-contrib-python")
+    _require_module("cv2", "python -m pip install opencv-python-headless")
     _require_module("numpy", "python -m pip install numpy")
     import cv2
     import numpy as np
@@ -219,7 +191,7 @@ def preprocess_detection_image(image_path: Path, limit_side_len: int = 960):
 
 def preprocess_recognition_image(image_path: Path, image_shape: tuple[int, int, int] = (3, 48, 320)):
     """Preprocess an image for PP-OCR recognition model tensor parity checks."""
-    _require_module("cv2", "python -m pip install opencv-contrib-python")
+    _require_module("cv2", "python -m pip install opencv-python-headless")
     _require_module("numpy", "python -m pip install numpy")
     import cv2
     import numpy as np
@@ -285,52 +257,6 @@ def run_onnx_inference(onnx_model_path: Path, input_tensor) -> list:
     return session.run(None, {input_name: input_tensor})
 
 
-def array_metadata(array, file_path: Path) -> dict[str, object]:
-    """Return serializable metadata for a saved tensor."""
-    return {
-        "file": str(file_path),
-        "shape": list(array.shape),
-        "dtype": str(array.dtype),
-        "min": float(array.min(initial=0.0)),
-        "max": float(array.max(initial=0.0)),
-        "mean": float(array.mean()) if array.size else 0.0,
-    }
-
-
-def export_native_onnx_outputs(
-    export_root: Path,
-    model_name: str,
-    task: str,
-    input_tensor,
-    onnx_outputs: Sequence,
-) -> dict[str, object]:
-    """Save native ONNX Runtime input/output tensors and a JSON manifest."""
-    _require_module("numpy", "python -m pip install numpy")
-    import numpy as np
-
-    model_dir = export_root / "native_onnx" / safe_name(model_name)
-    model_dir.mkdir(parents=True, exist_ok=True)
-
-    input_path = model_dir / "input.npy"
-    np.save(input_path, input_tensor)
-    output_metadata = []
-    for index, output in enumerate(onnx_outputs):
-        output_path = model_dir / f"output_{index}.npy"
-        np.save(output_path, output)
-        output_metadata.append(array_metadata(output, output_path))
-
-    manifest = {
-        "model": model_name,
-        "task": task,
-        "runtime": "onnxruntime",
-        "input": array_metadata(input_tensor, input_path),
-        "outputs": output_metadata,
-    }
-    manifest_path = write_json(manifest, model_dir / "manifest.json")
-    manifest["manifest_file"] = str(manifest_path)
-    return manifest
-
-
 def compare_outputs(paddle_outputs: Sequence, onnx_outputs: Sequence) -> dict[str, float | int | bool]:
     """Compare Paddle and ONNX outputs with numeric metrics."""
     _require_module("numpy", "python -m pip install numpy")
@@ -365,8 +291,6 @@ def validate_parity(
     task: str,
     max_abs_diff: float,
     min_cosine: float,
-    export_root: Path | None = None,
-    model_name: str | None = None,
 ) -> dict[str, object]:
     """Validate ONNX parity against Paddle on one image for a detection or recognition model."""
     input_tensor = preprocess_image_for_task(image_path, task)
@@ -378,98 +302,12 @@ def validate_parity(
     metrics["passed"] = bool(metrics["max_abs_diff"] <= max_abs_diff and metrics["min_cosine_similarity"] >= min_cosine)
     metrics["max_abs_threshold"] = max_abs_diff
     metrics["min_cosine_threshold"] = min_cosine
-    if export_root is not None:
-        metrics["native_onnx_result"] = export_native_onnx_outputs(
-            export_root,
-            model_name or paddle_model_dir.name,
-            task,
-            input_tensor,
-            onnx_outputs,
-        )
     return metrics
 
 
 def validate_detection(paddle_model_dir: Path, onnx_model_path: Path, image_path: Path, max_abs_diff: float, min_cosine: float) -> dict[str, object]:
     """Validate ONNX detection parity against Paddle on one image."""
     return validate_parity(paddle_model_dir, onnx_model_path, image_path, "det", max_abs_diff, min_cosine)
-
-
-def infer_paddleocr_model_name(model_dir: Path, task: str) -> str | None:
-    """Infer the PaddleOCR pipeline model name from a PP-OCR inference directory."""
-    name = model_dir.name.lower()
-    if "pp-ocrv5" not in name:
-        return None
-    size = "mobile" if "mobile" in name else "server" if "server" in name else None
-    if size is None:
-        return None
-    return f"PP-OCRv5_{size}_{task}"
-
-
-def export_paddleocr_result(
-    det_model_dir: Path,
-    rec_model_dir: Path,
-    image_path: Path,
-    export_root: Path,
-) -> dict[str, object]:
-    """Run the PaddleOCR pipeline and save its structured JSON result."""
-    _require_module(
-        "paddleocr",
-        "python -m pip install paddleocr 'paddlex[ocr-core]'",
-    )
-    from paddleocr import PaddleOCR
-
-    try:
-        ocr = PaddleOCR(
-            text_detection_model_name=infer_paddleocr_model_name(det_model_dir, "det"),
-            text_detection_model_dir=str(det_model_dir),
-            text_recognition_model_name=infer_paddleocr_model_name(rec_model_dir, "rec"),
-            text_recognition_model_dir=str(rec_model_dir),
-            enable_mkldnn=False,
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-        )
-        results = ocr.predict(str(image_path))
-    except Exception as exc:  # pragma: no cover - depends on optional PaddleOCR runtime extras
-        raise ConversionError(f"PaddleOCR result export failed: {exc}") from exc
-
-    output_dir = export_root / "paddleocr"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stem = safe_name(image_path.stem)
-    json_files = []
-    for index, result in enumerate(results):
-        suffix = f"_{index}" if len(results) > 1 else ""
-        result_path = output_dir / f"{stem}{suffix}.json"
-        if hasattr(result, "json"):
-            payload = result.json
-        else:
-            payload = {"result": str(result)}
-        write_json(payload, result_path)
-        json_files.append(str(result_path))
-
-    manifest = {
-        "runtime": "paddleocr",
-        "image": str(image_path),
-        "text_detection_model_dir": str(det_model_dir),
-        "text_recognition_model_dir": str(rec_model_dir),
-        "result_count": len(results),
-        "json_files": json_files,
-    }
-    manifest_path = write_json(manifest, output_dir / "manifest.json")
-    manifest["manifest_file"] = str(manifest_path)
-    return manifest
-
-
-def export_paddleocr_result_from_models(results: Sequence[dict[str, object]], image_path: Path, export_root: Path) -> dict[str, object]:
-    """Export PaddleOCR output when both a det and rec model are available."""
-    det_model_dir = next((Path(str(item["paddle_model_dir"])) for item in results if item.get("task") == "det"), None)
-    rec_model_dir = next((Path(str(item["paddle_model_dir"])) for item in results if item.get("task") == "rec"), None)
-    if det_model_dir is None or rec_model_dir is None:
-        return {
-            "skipped": True,
-            "reason": "PaddleOCR export requires both one detection model and one recognition model.",
-        }
-    return export_paddleocr_result(det_model_dir, rec_model_dir, image_path, export_root)
 
 
 def convert_and_validate_model(model_arg: str, args: argparse.Namespace) -> dict[str, object]:
@@ -492,16 +330,7 @@ def convert_and_validate_model(model_arg: str, args: argparse.Namespace) -> dict
         "onnx_model_path": str(onnx_path),
     }
     if not args.skip_validate:
-        metrics = validate_parity(
-            paddle_dir,
-            onnx_path,
-            args.image,
-            task,
-            args.max_abs_diff,
-            args.min_cosine,
-            args.results_dir if args.export_results else None,
-            model_arg,
-        )
+        metrics = validate_parity(paddle_dir, onnx_path, args.image, task, args.max_abs_diff, args.min_cosine)
         result["validation"] = metrics
     return result
 
@@ -521,8 +350,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image", type=Path, default=Path("test_paper.PNG"), help="Image used for parity validation.")
     parser.add_argument("--skip-convert", action="store_true", help="Use existing ONNX files under output-root/onnx instead of running PaddleX.")
     parser.add_argument("--skip-validate", action="store_true", help="Only download/convert; do not run Paddle vs ONNX parity validation.")
-    parser.add_argument("--export-results", action="store_true", help="Export PaddleOCR JSON output plus native ONNX Runtime input/output tensors.")
-    parser.add_argument("--results-dir", type=Path, default=None, help="Directory for exported PaddleOCR and native ONNX results. Defaults to output-root/results.")
     parser.add_argument("--max-abs-diff", type=float, default=1e-3, help="Maximum allowed absolute output difference.")
     parser.add_argument("--min-cosine", type=float, default=0.99999, help="Minimum allowed output cosine similarity.")
     return parser
@@ -530,8 +357,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.results_dir is None:
-        args.results_dir = args.output_root / "results"
     try:
         results = [convert_and_validate_model(model_arg, args) for model_arg in args.model]
     except ConversionError as exc:
@@ -544,15 +369,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = results[0]
     else:
         payload = {"models": results}
-    if args.export_results:
-        try:
-            payload["exports"] = {
-                "results_dir": str(args.results_dir),
-                "paddleocr": export_paddleocr_result_from_models(results, args.image, args.results_dir),
-            }
-        except ConversionError as exc:
-            print(f"pp2onnx: error: {exc}", file=sys.stderr)
-            return 1
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 2 if failed else 0
 

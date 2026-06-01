@@ -10,9 +10,7 @@ from pp2onnx.convert import (
     ConversionError,
     build_parser,
     compare_outputs,
-    export_native_onnx_outputs,
     extract_tar,
-    infer_paddleocr_model_name,
     infer_task,
     preprocess_recognition_image,
     resolve_model,
@@ -80,18 +78,10 @@ def test_infer_task_uses_local_model_name(tmp_path: Path) -> None:
     assert infer_task(str(tmp_path / "custom_det_dir"), tmp_path / "custom_det_dir") == "det"
 
 
-def test_infer_paddleocr_model_name_for_known_ppocr_dirs() -> None:
-    assert infer_paddleocr_model_name(Path("PP-OCRv5_mobile_det_infer"), "det") == "PP-OCRv5_mobile_det"
-    assert infer_paddleocr_model_name(Path("PP-OCRv5_server_rec_infer"), "rec") == "PP-OCRv5_server_rec"
-    assert infer_paddleocr_model_name(Path("custom_model"), "det") is None
-
-
 def test_default_cli_models_are_mobile_det_and_rec() -> None:
     args = build_parser().parse_args([])
 
     assert args.model == ["mobile_det", "mobile_rec"]
-    assert args.export_results is False
-    assert args.results_dir is None
 
 
 def test_compare_outputs_metrics() -> None:
@@ -122,18 +112,3 @@ def test_preprocess_recognition_image_pads_to_ppocr_shape(tmp_path: Path) -> Non
 
     assert tensor.shape == (1, 3, 48, 320)
     assert tensor.dtype == np.float32
-
-
-def test_export_native_onnx_outputs_writes_manifest_and_tensors(tmp_path: Path) -> None:
-    np = pytest.importorskip("numpy")
-    input_tensor = np.zeros((1, 3, 4, 4), dtype=np.float32)
-    output_tensor = np.ones((1, 1, 2, 2), dtype=np.float32)
-
-    manifest = export_native_onnx_outputs(tmp_path, "mobile/det", "det", input_tensor, [output_tensor])
-
-    manifest_path = Path(manifest["manifest_file"])
-    assert manifest_path.exists()
-    assert (tmp_path / "native_onnx" / "mobile_det" / "input.npy").exists()
-    assert (tmp_path / "native_onnx" / "mobile_det" / "output_0.npy").exists()
-    assert manifest["runtime"] == "onnxruntime"
-    assert manifest["outputs"][0]["shape"] == [1, 1, 2, 2]

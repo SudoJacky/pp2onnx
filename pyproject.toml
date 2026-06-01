@@ -14,13 +14,12 @@ dependencies = [
 
 [project.optional-dependencies]
 convert = [
-  "paddlex[ocr-core]>=3.6.0,<3.7.0",
+  "paddlex>=3.6.0,<3.7.0",
   "paddle2onnx==2.1.0",
   "paddlepaddle>=3.0.0",
-  "paddleocr>=3.0.0",
   "onnx>=1.16.1,<1.18.0",
   "onnxruntime>=1.17.0",
-  "opencv-contrib-python>=4.10.0",
+  "opencv-python-headless>=4.8.0",
 ]
 test = [
   "pytest>=8.0.0",
