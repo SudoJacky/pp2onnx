@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pp2onnx"
+version = "0.1.0"
+description = "PP-OCRv5 PaddleOCR to ONNX conversion and detection parity validation utilities"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+convert = [
+  "paddlex>=3.6.0,<3.7.0",
+  "paddle2onnx==2.1.0",
+  "paddlepaddle>=3.0.0",
+  "onnx>=1.16.1,<1.18.0",
+  "onnxruntime>=1.17.0",
+  "opencv-python-headless>=4.8.0",
+]
+test = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+pp2onnx = "pp2onnx.convert:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pp2onnx*"]
