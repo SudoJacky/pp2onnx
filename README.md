@@ -132,3 +132,46 @@ tests/
 python -m pip install -e '.[test]'
 pytest
 ```
+
+## 两个独立脚本
+
+如果只需要独立脚本，可以直接使用仓库根目录下的两个文件，不需要安装 `pp2onnx` 包本身。
+
+### 1. `convert_ppocrv5_to_onnx.py`
+
+将 PP-OCRv5 Paddle 推理模型转换成 ONNX。脚本接受：
+
+- 内置模型别名：`mobile_det`、`mobile_rec`、`server_det`、`server_rec`；
+- 本地 Paddle 推理模型目录，目录内需要包含 `inference.json` 或 `inference.pdmodel`，以及 `inference.pdiparams`；
+- 自定义 Paddle 推理模型 tar URL。
+
+```bash
+python convert_ppocrv5_to_onnx.py \
+  --model mobile_det \
+  --output onnx_models/PP-OCRv5_mobile_det.onnx
+```
+
+也可以转换本地目录：
+
+```bash
+python convert_ppocrv5_to_onnx.py \
+  --model /path/to/PP-OCRv5_mobile_det_infer \
+  --output onnx_models/PP-OCRv5_mobile_det.onnx
+```
+
+默认后端是 `paddle2onnx` 命令行；如需复用 PaddleX 插件，可以加 `--backend paddlex`。
+
+### 2. `detect_ppocrv5_onnx.py`
+
+使用 ONNX Runtime 加载转换后的 PP-OCRv5 检测模型，并对图片或 PDF 页面执行文本框检测。检测前处理、DB 后处理阈值、膨胀、unclip 和文本框排序默认参考 RapidOCR 对 PP-OCR 系列检测模型的处理方式。
+
+```bash
+python -m pip install '.[detect]'
+python detect_ppocrv5_onnx.py \
+  --model onnx_models/PP-OCRv5_mobile_det.onnx \
+  --input test_paper.PNG sample.pdf \
+  --output-json det_results.json \
+  --vis-dir det_vis
+```
+
+输出 JSON 中每个图片或 PDF 页面包含原始宽高、检测框四点坐标、置信度、耗时和可视化图片路径。
