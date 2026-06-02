@@ -115,6 +115,30 @@ pp2onnx --model mobile_det mobile_rec --skip-convert --image test_paper.PNG
 3. 使用 `test_paper.PNG` 之外的业务样本重复验证，避免只对单张图片过拟合验收；
 4. 对 `mobile_rec` 使用真实文本框裁剪图验证识别 logits 和后处理文本结果。
 
+
+## PP-OCRv5 Mobile FP16 / INT8 ONNX 模型
+
+仓库现在内置了两组 PP-OCRv5 Mobile ONNX 量化模型，命名和输入保持 RapidOCR / OnnxOCR 常见部署方式：检测模型使用动态 `NCHW` 输入，识别模型使用 `N x 3 x 48 x W` 输入，部署端继续复用 PP-OCR 的 det/rec 前后处理。
+
+| 文件 | 任务 | 精度 | 说明 |
+| --- | --- | --- | --- |
+| `models/ppocrv5_mobile/ppocrv5_mobile_det_fp16.onnx` | 文本检测 | FP16 | 保留 float32 输入/输出，图内部权重和中间张量转 FP16。 |
+| `models/ppocrv5_mobile/ppocrv5_mobile_det_int8.onnx` | 文本检测 | INT8 | ONNX Runtime static QDQ，量化 `Conv` / `MatMul`，使用 PP-OCR 检测预处理校准。 |
+| `models/ppocrv5_mobile/ppocrv5_mobile_rec_fp16.onnx` | 文本识别 | FP16 | 保留 float32 输入/输出，图内部权重和中间张量转 FP16。 |
+| `models/ppocrv5_mobile/ppocrv5_mobile_rec_int8.onnx` | 文本识别 | INT8 | ONNX Runtime static QDQ，量化 `Conv` / `MatMul`，使用 PP-OCR 识别预处理校准。 |
+
+生成这些模型的命令如下；源 ONNX 可以来自本仓库转换出的 FP32 ONNX，也可以使用其他 PP-OCRv5 mobile det/rec ONNX：
+
+```bash
+uv run --extra quantize python -m pp2onnx.quantize \
+  --model det=/path/to/ppocrv5_det.onnx \
+  --model rec=/path/to/ppocrv5_rec.onnx \
+  --output-dir models/ppocrv5_mobile \
+  --calibration-image test_paper.PNG
+```
+
+INT8 模型默认使用 per-tensor QDQ，是为了兼容常见的 PP-OCRv5 opset 11 ONNX；如果你的源模型 opset 和运行端支持 per-channel QDQ，可以额外加 `--int8-per-channel`。量化只改变 ONNX 图精度，不改变 OCR pipeline：检测后处理阈值、unclip、文本框排序、识别字典和解码仍需由 RapidOCR / OnnxOCR / 业务部署端提供。
+
 ## 项目结构
 
 ```text

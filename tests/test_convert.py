@@ -112,3 +112,32 @@ def test_preprocess_recognition_image_pads_to_ppocr_shape(tmp_path: Path) -> Non
 
     assert tensor.shape == (1, 3, 48, 320)
     assert tensor.dtype == np.float32
+
+
+def test_quantize_model_parser_accepts_task_paths() -> None:
+    from pp2onnx.quantize import build_parser
+
+    args = build_parser().parse_args(["--model", "det=det.onnx", "--model", "rec=rec.onnx"])
+
+    assert args.model == [("det", Path("det.onnx")), ("rec", Path("rec.onnx"))]
+    assert args.precision == ["fp16", "int8"]
+
+
+def test_quantized_output_path_uses_ppocrv5_mobile_names(tmp_path: Path) -> None:
+    from pp2onnx.quantize import quantized_output_path
+
+    assert quantized_output_path(tmp_path, Path("ppocrv5_det.onnx"), "det", "fp16") == tmp_path / "ppocrv5_mobile_det_fp16.onnx"
+    assert quantized_output_path(tmp_path, Path("ppocrv5_rec.onnx"), "rec", "int8") == tmp_path / "ppocrv5_mobile_rec_int8.onnx"
+
+
+def test_tensor_calibration_data_reader_yields_once() -> None:
+    np = pytest.importorskip("numpy")
+    from pp2onnx.quantize import TensorCalibrationDataReader
+
+    tensor = np.zeros((1, 3, 48, 320), dtype=np.float32)
+    reader = TensorCalibrationDataReader("x", [tensor])
+
+    first = reader.get_next()
+    assert first is not None
+    assert first["x"].shape == (1, 3, 48, 320)
+    assert reader.get_next() is None
