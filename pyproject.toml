@@ -29,12 +29,19 @@ detect = [
   "shapely>=2.0.0",
   "pymupdf>=1.24.0",
 ]
+quantize = [
+  "onnx>=1.16.1,<1.18.0",
+  "onnxconverter-common>=1.16.0",
+  "onnxruntime>=1.17.0",
+  "opencv-python-headless>=4.8.0",
+]
 test = [
   "pytest>=8.0.0",
 ]
 
 [project.scripts]
 pp2onnx = "pp2onnx.convert:main"
+pp2onnx-quantize = "pp2onnx.quantize:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
